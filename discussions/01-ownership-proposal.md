@@ -300,9 +300,74 @@ Let us examine how these specifications are desugared into Separation Logic.
   The mathematical equality `r1 = r2` is interpreted as an equality
   between two memory locations.
 
+## Réflexions Inachevées
+
+Armaël et moi avons réfléchi (21 avril 2022) à cette approche, et nous nous
+sommes intéressés en particulier à la spécification de la fonction
+
+```
+  val iter_incr : int ref list -> unit
+  let iter_incr rs =
+    List.iter incr rs
+```
+
+On peut vouloir employer cette fonction dans deux situations différentes:
+d'une part celle où on a une liste de références distinctes, d'autre part
+celle où on a une liste de références potentiellement répétées. On peut donc
+vouloir écrire deux specs différentes. Il se trouve que les deux peuvent
+s'écrire de façon simple, comme suit. Voici d'abord la première, où on exige
+des références disjointes:
+
+```
+  (*@ iter_incr rs
+        ensures foreach(list) r in rs, !r = old(!r) + 1 *)
+```
+
+On n'a pas de précondition, mais comme la postcondition mentionne `old(!r)`,
+elle exige implicitement la possession de la référence `r` dans l'état initial.
+La quantification `foreach(list)` est une conjonction séparante itérée sur la
+liste `r`; elle exige donc que l'on possède séparément les références de la
+liste `rs` (en entrée) et affirme qu'on les possède séparément (en sortie). Au
+passage, on affirme que pour chaque référence `r`, la nouvelle valeur `!r` est
+égale à l'ancienne, plus 1.
+
+Voici l'autre spécification, presque identique:
+
+```
+  (*@ iter_incr rs
+        ensures foreach(set) r in elements(rs), !r = old(!r) + count r rs *)
+```
+
+Cette fois on utilise `foreach(set)`, une conjonction séparante itérée sur un
+ensemble, ici l'ensemble `elements(rs)`, l'ensemble des éléments de la liste `rs`.
+Et au lieu d'indiquer que la référence `r` est incrémentée de 1, on indique
+qu'elle est incrémentée de `count r rs`, le nombre d'occurrences de l'adresse
+`r` dans la liste d'adresses `rs`.
+
+Bien sûr, ces deux spécifications ne sont pas valides en Gospel aujourd'hui,
+mais pourraient avoir un sens dans une version future de Gospel, à condition
+de parvenir à définir précisément quelle est leur signification, c'est-à-dire
+comment elles sont désucrées vers la logique de séparation.
+
 ## Area Under Construction
 
 The following points should be discussed:
+
+* Can Gospel support *deep ownership*, that is, collections that own their
+  elements? If so, what is the specification of `Array.get`, and what does it
+  mean? (Is it restricted to a subclass of duplicable types? Does it render
+  the array temporarily unusable? Does it somehow borrow the element from the
+  array?)
+
+* Can we live without deep ownership? The answer should be positive: it should
+  be possible to simulate a collection that owns its elements via a collection
+  that does not own its elements (a collection of locations), together with a
+  group region (an iterated conjunction) of elements.
+
+* Examples of deep ownership: a stack implemented as a stack of stacks
+  (Alexandre); a 2D matrix implemented as an array of arrays; a
+  dictionary whose keys are pairs, implemented as a dictionary
+  of dictionaries.
 
 * How to model mutable objects; per-object versus per-field ownership.
 

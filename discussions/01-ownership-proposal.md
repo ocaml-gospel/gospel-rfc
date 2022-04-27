@@ -300,6 +300,17 @@ Let us examine how these specifications are desugared into Separation Logic.
   The mathematical equality `r1 = r2` is interpreted as an equality
   between two memory locations.
 
+## Recursive Ownership
+
+Recursive ownership (which is the possibility for a container to own its
+elements) is a tricky issue: understanding exactly how it should work seems
+tricky, but living without it seems tricky as well. The (real-life!) example
+of [stack of stacks](src/stack.ml) offers one illustration of the problem.
+
+Other illustrations include a (mutable) dictionary whose keys are pairs,
+implemented as a dictionary of dictionaries; and a (mutable) 2D matrix,
+implemented as an array of arrays (this is just a special case).
+
 ## Réflexions Inachevées
 
 Armaël et moi avons réfléchi (21 avril 2022) à cette approche, et nous nous
@@ -364,10 +375,7 @@ The following points should be discussed:
   that does not own its elements (a collection of locations), together with a
   group region (an iterated conjunction) of elements.
 
-* Examples of deep ownership: a stack implemented as a stack of stacks
-  (Alexandre); a 2D matrix implemented as an array of arrays; a
-  dictionary whose keys are pairs, implemented as a dictionary
-  of dictionaries.
+* More examples of deep ownership.
 
 * How to model mutable objects; per-object versus per-field ownership.
 

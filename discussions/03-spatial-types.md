@@ -46,12 +46,6 @@ on lui ajoute un nom pour pouvoir le tenir:
   r ~> (GroupOf R) M
 ```
 
-(Armaël: j'ai l'impression que du point de vue de Gospel on n'a pas
- besoin de `r` et qu'on peut plutôt voir les groupes comme un type
- d'assertion séparé ? Arthur: je pense que c'est très utile,
- en CFML comme en Gospel, de nommer les régions groupes, comme par
- exemple celles qui décrivent l'état interne d'un union-find.)
-
 ## Etape 3 : réduire le nombre de variables auxiliaires
 
 
@@ -617,33 +611,42 @@ type 'a mlist = Nil | Cons of { head : 'a; mutable tail : 'a mlist }
     il correspond au prédicat de représentation `Id`, et ne sera autorisé que dans
     des contextes où on sait comment l'instancier
 
-- on introduit un langage d'*assertions spatiales*, de la forme `x @ t`, où `x`
-  est le nom d'un argument/valeur de retour, et où `t` est un type spatial
-  + les assertions spatiales sont affines, et correspondent à des assertion de 
-    logique de séparation
-  + l'assertion `x @ t` désigne la possession de `x` telle que décrite par le type spatial `t`
-  + l'assertion `x @ any` ne donne aucune possession. Elle est utile notamment
-    pour parler d'aliasing.
-  + les assertions spatiales s'utilisent dans les clauses `modifies`, `consumes`, `produces` et `preserves`
-  + la conjonction de formules spatiales se fait avec des `,`
-  + une assertion `x @ u` n'est bien typée que si le type OCaml de `x` est
-    compatible avec `u` (pour la relation de compat définie comme on l'imagine..)
+- on introduit des nouvelles *clauses spatiales* permettant de spécifier des
+  informations de possession en utilisant les types spatiaux. Les nouvelles
+  clauses sont `modifies`, `preserves`, `consumes` et `produces`.
 
-  
+- chaque clause prend en argument une liste d'*assertions spatiales* séparées
+  par des virgules, de la forme `x @ t`, où :
+  + `x` est le nom d'un argument ou valeur de retour
+  + `t` est un type spatial
 
-  + sucre : on peut écrire e.g. `consumes x` pour `consumes x @ t` où `t` est le lifting par défaut en type spatial du type ocaml `t` de `x`
-    
-  + .... TODO compléter pour les désucrages (cf mini intro au début)
-    
+- l'assertion `x @ t` désigne la possession de `x` telle que décrite par le type
+  spatial `t`
+- une assertion `x @ u` n'est bien typée que si le type OCaml de `x` est
+  compatible avec `u` (pour la relation de compat définie comme on l'imagine..)
 
- 
+- le désucrage / traduction des clauses spatiales se fait séparément pour chaque
+  argument / valeur de retour, comme suit :
+  + on peut écrire `x` à la place de `x @ t`, où `t` est le lifting en type
+    spatial du type OCaml `t` de `x`
+  + `modifies x @ t` est du sucre pour `consumes x @ t` + `produces x @ t`
+  + `preserves x @ t` se désucre en `consumes`+`produces` avec une permission
+    lecture seule (notion à déterminer). En première approche, une alternative
+    plus limitée mais correcte serait de le désucrer en `consumes x @ t` +
+    `produces x @ t` + le modèle logique reste le même.
+  + pour chaque argument, si `x` n'est pas mentionné dans `consumes` ou
+    `produces`, on ajoute `preserves x`
+  + pour chaque valeur de retour, si `x` n'est pas mentionné dans une clause
+    `produces`, on ajoute automatiquement `produces y`.
+
+
 ## Types spatiaux : modèle logique & types des valeurs
 
-- à chaque type OCaml on associe un type spatial (donc un prédicat de
-  représentation), qui doit alors déterminer deux types logiques : le type du
-  modèle, et le type des valeurs de programme.
-  Autrement dit, pour chaque type OCaml, il nous faut déterminer quels sont les
-  *deux* types logiques, pour le modèle et les valeurs.
+- à chaque type OCaml on associe un type spatial par défaut (donc un prédicat de
+  représentation), associé à deux types logiques : le type du modèle, et le type
+  des valeurs de programme. Autrement dit, pour chaque type OCaml, il nous faut
+  déterminer quel est le type logique du modèle, **et** quel est le type logique
+  des valeurs.
 
 - pour les types OCaml purs, le modèle et les valeurs ont le même type logique,
   qui est le reflet du type OCaml. On donne au type logique le même nom que le
@@ -679,7 +682,7 @@ type 'a mlist = Nil | Cons of { head : 'a; mutable tail : 'a mlist }
 - pour les variables de types (dans les fonctions polymorphes): même problématique
   que pour les types abstraits.
 
-## Types spatiaux & clauses requires/ensures
+## Liaison de noms entre clauses consumes/produces et clauses requires/ensures
 
 - une assertion spatiale `x @ t`:
   + demande que `x` soit le nom d'un des paramètres ou valeurs de retour
@@ -690,6 +693,9 @@ type 'a mlist = Nil | Cons of { head : 'a; mutable tail : 'a mlist }
 
 - conséquence : dans une clause `requires`/`ensures`, `x` n'a pas "le" type de `x`,
   mais le type de son modèle, tel que spécifié par l'assertion spatiale.
+
+- dans une clause `ensures`, `old x` bind `x` au modèle de `x` **dans la
+  précondition**.
 
 ## Accéder à l'addresse de valeurs possédées
 
@@ -747,26 +753,40 @@ Dans des cas d'utilisation avancée (notamment en présence d'aliasing), on a be
 de parler de la possession d'un *groupe* de valeurs du même type (i.e. ça correspond
 à une `*` itérée).
 
-- on introduit une assertion spatiale `g @@ t`, où: 
-  + `t` est un type spatial
-  + `g` est une valeur logique de type `(i, m) group`, qu'il faut interpréter comme
-    une structure de map finie dont les clefs sont de type `i` et les valeurs de type
-    `m`, où `i` et `m` correspondent aux types logiques des valeurs et des modèles
-    donnés par `t`.
-  
-- **NB**: ça n'a pas de sens d'utiliser `any` (non instancié) dans le type `t` d'un
-  type spatial. L'interdire ? L'autoriser mais avec une syntaxe pour l'instancier ?
-  
-- des fonctions ghost pour extraire une assertion `x @ t` d'un groupe / ajouter une
-  assertion `x @ t` à un groupe
-  + utile pour les preuves
+On peut l'exprimer sans étendre le langage des assertions gospel. Il suffirait
+de disposer de l'interface suivante (`ghost type`, `ghost val` n'existent pas
+actuellement, à discuter) :
 
-- pour les conteneurs mutables, un "specification pattern" est de prouver un lemme
-  (fonctions ghost) qui permet de séparer la possession récursive sur la structure
-  et ses éléments en la possession sur la structure + une possession de groupe sur
-  les éléments. (et un autre lemme pour aller dans l'autre direction)
+```
+ghost type 'a group
+(*@ model (&'a, 'a) map *)
 
-TODO expand
+ghost val add : 'a group -> 'a -> unit
+(*@ add g x
+      affine 'a
+      consumes x
+      requires &x ∉ (dom g)
+      ensures g = map_add (old g) &x x *)
+
+ghost val remove : 'a group -> &'a -> 'a
+(*@ remove g x
+      affine 'a
+      requires &x ∈ dom g
+      ensures g = map_remove (old g) &x *)
+```
+
+- dans les spécifications, on a seulement besoin de pouvoir utiliser le type `'a
+  ghost` (et type spatial correspondant) pour parler de la permission sur un
+  groupe de `'a`.
+  
+- dans les preuves, on utiliserait les "fonctions ghost" `add` et `remove`;
+  elles correspondent à des lemmes en logique de séparation
+
+- pour les conteneurs mutables, un "specification pattern" est de prouver un
+  lemme (fonctions ghost) qui permet de séparer la possession récursive sur la
+  structure et ses éléments en la possession sur la structure + une possession
+  de groupe sur les éléments. (et un autre lemme pour aller dans l'autre
+  direction) Cf les exemples ci-dessous.
 
 ## Definition de types, modèle, et invariants associés (internes et externes)
 

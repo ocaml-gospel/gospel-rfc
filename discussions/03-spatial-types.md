@@ -215,7 +215,7 @@ Pour une valeur de retour `y`, on peut avoir des champs `produces y` ou `produce
 
 ghost type 'a uf = (loc,'a) group
 (* le group est un type spatial, représenté dans la logique au type
-   (loc,'a') group *)
+   (loc,'a) group *)
   r : 'a uf
   model : { dom : 'a elem set '; 
             rep : 'a elem -> 'a elem;
@@ -754,8 +754,15 @@ de parler de la possession d'un *groupe* de valeurs du même type (i.e. ça corr
 à une `*` itérée).
 
 On peut l'exprimer sans étendre le langage des assertions gospel. Il suffirait
-de disposer de l'interface suivante (`ghost type`, `ghost val` n'existent pas
-actuellement, à discuter) :
+de disposer de l'interface suivante.
+
+(`ghost type`, `ghost val` n'existent pas actuellement; leur sémantique
+correspondrait au fait que l'on pourrait enlever le mot clef ghost et
+implémenter `type 'a group` comme `unit`+invariants de possession, et `add` et
+`remove` comme des fonctions ne faisant rien. Mais on préfèrerait pouvoir
+explicitement dire qu'ils n'ont aucun impact à runtime, servent uniquement pour
+le raisonnement logique, et ne seront utilisés que dans des arguments ghost /
+preuves).
 
 ```
 ghost type 'a group

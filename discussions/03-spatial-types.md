@@ -726,7 +726,7 @@ Proposition :
   spécifie, chaque variable de type `'a` donne lieu à une variable de type spatial
   `'a`, qui est *supposée duplicable*
 - si l'on veut écrire une spec qui fonctionne aussi pour des `'a` ephemeral, on
-  introduit une clause supplémentaire `affine 'a`
+  introduit une clause supplémentaire `ephemeral 'a` (ou `affine 'a` ?)
 
 - c'est intéressant de noter que c'est similaire au traitement des types abstraits,
   par ex en paramètre de foncteur
@@ -753,47 +753,46 @@ Dans des cas d'utilisation avancée (notamment en présence d'aliasing), on a be
 de parler de la possession d'un *groupe* de valeurs du même type (i.e. ça correspond
 à une `*` itérée).
 
-On peut l'exprimer sans étendre le langage des assertions gospel. Il suffirait
-de disposer de l'interface suivante.
-
-(`ghost type`, `ghost val` n'existent pas actuellement; leur sémantique
-correspondrait au fait que l'on pourrait enlever le mot clef ghost et
-implémenter `type 'a group` comme `unit`+invariants de possession, et `add` et
-`remove` comme des fonctions ne faisant rien. Mais on préfèrerait pouvoir
-explicitement dire qu'ils n'ont aucun impact à runtime, servent uniquement pour
-le raisonnement logique, et ne seront utilisés que dans des arguments ghost /
-preuves).
+On peut l'exprimer sans étendre le langage des assertions gospel. Il suffit de
+disposer de l'interface suivante :
 
 ```
-ghost type 'a group
+(*@ type 'a group *)
 (*@ model (&'a, 'a) map *)
 
-ghost val add : 'a group -> 'a -> unit
-(*@ add g x
-      affine 'a
-      consumes x
-      requires &x ∉ (dom g)
-      ensures g = map_add (old g) &x x *)
+(*@ val create : unit -> 'a group *)
+(*@ g = create ()
+      ephemeral 'a
+      ensures g = Map.empty *)
 
-ghost val remove : 'a group -> &'a -> 'a
+(*@ val add : 'a group -> 'a -> unit *)
+(*@ add g x
+      ephemeral 'a
+      consumes x @ 'a
+      produces x @ any
+      ensures g = Map.add (old g) x (old x) *)
+
+(*@ val remove : 'a group -> 'a -> unit *)
 (*@ remove g x
-      affine 'a
-      requires &x ∈ dom g
-      ensures g = map_remove (old g) &x *)
+      ephemeral 'a
+      consumes x @ any
+      produces x @ 'a
+      requires x ∈ Map.dom g
+      ensures g = Map.remove (old g) (old x) /\ x = Map.find (old g) (old x) *)
 ```
 
 - dans les spécifications, on a seulement besoin de pouvoir utiliser le type `'a
-  ghost` (et type spatial correspondant) pour parler de la permission sur un
-  groupe de `'a`.
+  group` (pour des arguments / valeurs de retour ghost), et le type spatial `'a
+  group` correspondant pour parler de la permission sur un groupe de `'a`.
   
-- dans les preuves, on utiliserait les "fonctions ghost" `add` et `remove`;
-  elles correspondent à des lemmes en logique de séparation
+- dans les preuves, on utilise les "fonctions ghost" `create`, `add` et
+   `remove`, qui correspondent à des lemmes en logique de séparation
 
-- pour les conteneurs mutables, un "specification pattern" est de prouver un
-  lemme (fonctions ghost) qui permet de séparer la possession récursive sur la
+- pour les conteneurs mutables, un "specification pattern" est d'exposer un
+  lemme (fonction ghost) qui permet de séparer la possession récursive sur la
   structure et ses éléments en la possession sur la structure + une possession
   de groupe sur les éléments. (et un autre lemme pour aller dans l'autre
-  direction) Cf les exemples ci-dessous.
+  direction) Cf les exemples `explode`/`implode` ci-dessous.
 
 ## Definition de types, modèle, et invariants associés (internes et externes)
 
@@ -1103,39 +1102,40 @@ val iter_incr : int ref list -> unit
 *)
 ```
 
-## specification pattern: explode/implode functions
+## Specification pattern: explode/implode functions
 
 explode/implode functions: a specification pattern
 
 ```
 (* forme générale: *)
-ghost explode_t : 'a t -> unit
+(*@ val explode_t : 'a t -> unit *)
 (*@ [g : 'a group] = explode_t x
-    nonduplicable 'a (?)
+    ephemeral 'a
     consumes x @ 'a t
-    produces g @@ 'a * x @ any t
+    produces x @ any t
     ensures dom g = ...
 *)
 
 (* pour les tableaux *)
-ghost explode_array : 'a array -> unit
-(*@ [g : (&'a, 'a) group] = explode_array a
-    ephemeral 'a
-    consumes a @ 'a array
-    produces g @@ 'a * a @ any array
-    ensures dom g = elements a /\ 
-      cardinal (dom g) = length a /\ (or: nodup a ?)
-      ∀ 0 <= i < length a. g[a[i]] = old a[i]
+(*@ val explode_array : 'a array -> unit *)
+(*@ [g : 'a group] = explode_array a
+      ephemeral 'a
+      consumes a @ 'a array
+      produces a @ any array
+      ensures dom g = elements a /\
+        cardinal (dom g) = length a /\ (or: nodup a ?)
+        ∀ 0 <= i < length a. g[a[i]] = old a[i]
 *)
 
-ghost implode_array : 'a array -> unit
-(*@ implode_array [g : (&'a, 'a) group] a
+(*@ val implode_array : 'a array -> unit *)
+(*@ implode_array [g : 'a group] a
       ephemeral 'a
-      consumes g @@ 'a * a @ any array
+      consumes g @ 'a group * a @ any array
       produces a @ 'a array
-      requires dom g = elements a /\ 
+      requires dom g = elements a /\
         cardinal (dom g) = length a (or: nodup a ?)
-      ensures ∀ 0 <= i < length a. a[i] = g[old a[i]]
+      ensures ∀ 0 <= i < length a. a[i] = (old g)[old a[i]]
+*)
 ```
 
 

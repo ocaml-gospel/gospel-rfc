@@ -227,11 +227,11 @@ ghost type 'a uf = (loc,'a) group
    R.dom = Map.dom r
    R.img = Map.get r (* application partielle *)
    R.rep = (fonction qui suit le chemin uniques dans le graphe décrit par r)
-  
+*)
   
 (*@ val create: unit -> 'a uf *)
 (*@ uf = create ()
-      (* noter que le [produces r] est implicite *)
+      (* noter que le [produces uf] est implicite *)
       ensures uf.dom = {} *)
 
 val make : 'a -> 'a elem
@@ -250,38 +250,38 @@ val make : 'a -> 'a elem
    l'avantage de nommer l'opération, est qu'on peut plus facilement
    énoncer des lemmes sur [UF.add]. *)
 
-val repr : 'a node -> 'a node 
+val repr : 'a elem -> 'a elem
   (*@ y = repr [uf : 'a uf] x 
         modifies r
         requires mem x uf.dom 
-        ensures y = repr uf x 
+        ensures y = uf.rep x 
   *)
   
-val eq : 'a node -> 'a node -> bool
+val eq : 'a elem -> 'a elem -> bool
   (*@ b = eq [uf : 'a uf] x y 
         modifies uf
         requires mem x uf.dom /\ mem y uf.dom 
-        ensures old r = r /\ repr r x = repr r y
+        ensures old uf = uf /\ uf.rep x = uf.rep y
   *)
   
-val union : 'a node -> 'a node -> unit
-  (*@ union [r : 'a uf] x y 
+val union : 'a elem -> 'a elem -> unit
+  (*@ union [uf : 'a uf] x y
         modifies uf
-        requires mem x uf.dom /\ mem y uf.dom 
+        requires mem x uf.dom /\ mem y uf.dom
         ensures ...
   *)
   
-val get : 'a node -> 'a  (* cas simple, valeurs duplicable *)
-  (*@ v = get x [r : 'a uf]
+val get : 'a elem -> 'a  (* cas simple, valeurs duplicable *)
+  (*@ v = get x [uf : 'a uf]
         duplicable 'a
-        modifies r
+        modifies uf
         requires mem x uf.dom 
-        ensures old r = r /\ v = img r
+        ensures old uf = uf /\ v = uf.img
   *)
 ``` 
 
-   
-   
+
+
 ## Remarques sur la spec actuelle de Gospel UF
 ```
 (*@ type 'a uf *)

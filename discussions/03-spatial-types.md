@@ -207,17 +207,14 @@ Pour une valeur de retour `y`, on peut avoir des champs `produces y` ou `produce
 ## Union Find
 
 ```
-(* noter que 'a node est duplicable; 
-   son modèle logique est une valeur de type loc *)
+type 'a elem
+(*@ duplicable *)
 
 (* voir les champs modèls et les invariants plus loin dans ce doc,
    issue du gospel.mli de vocal; ici, on donne l'instantiation. *)
 
-ghost type 'a uf = (loc,'a) group
-(* le group est un type spatial, représenté dans la logique au type
-   (loc,'a) group *)
-  r : 'a uf
-  model : { dom : 'a elem set '; 
+(*@ type 'a uf *)
+  model : { dom : 'a elem set;
             rep : 'a elem -> 'a elem;
             img : 'a elem -> 'a }
   invariant is_uf_graph r (model r)  (* defined e.g. in Coq *)
@@ -236,11 +233,11 @@ ghost type 'a uf = (loc,'a) group
 
 val make : 'a -> 'a elem
 (*@ e = make [uf: 'a uf] v
-      (* noter le consumes v implicite *)
+      consumes v
       modifies uf
       ensures  not (mem e (old uf.dom))
-      ensures  uf = UF.add (old uf) e v *)
-      
+      ensures  uf = UF.add (old uf) e (old v) *)
+
 (* Noter que c'est la définition logique [UF.add R e v] qui définit 
    l'évolution du modèle:
       { dom = Set.add e R.dom;
@@ -394,14 +391,14 @@ val push : 'a stack -> 'a -> unit
   (*@ push s x
         modifies s
         consumes x
-        ensures s = x :: old s
+        ensures s = old x :: old s
   *)
   
   val pop : 'a stack -> 'a
   (*@ x = pop s
         modifies s
-        produces x
         requires s <> []
+        produces x
         ensures old s = x :: s
   *)
 ```
@@ -426,27 +423,63 @@ Spec de top pour éléments non duplicables, en read-write.
   val top : 'a stack -> 'a 
   (*@ [close:wand], x = top s 
         consumes s as s_old (* je bind un nom pour le wand *)
+        requires s <> []
         produces x
         produces (spec close ()    
             consumes x (* le model a pu changer *)
             produces s
-            ensures s = y :: Seq.tail s_old) 
-        requires s <> []
-        ensures x = Seq.head s
-  *)  
-  
-(* spec dérivée de pop, pour jeter un élément
-   de tête après un top qui a déjà extrait l'élément *)
-  val pop : 'a stack -> 'a 
-  (*@ y = pop [close:wand] [x:'a] s
-        consumes (spec close () consumes x produces s
-                  ensures s = y :: Seq.tail s_old)
-        modifies s
-        produces y@any
-        requires x = Seq.head s
-        ensures s = Seq.tail (old s)
-        ensures &y = &x      (* équivalent à [y = &x] *)
+            ensures s = old x :: Seq.tail s_old) 
+        ensures x = Seq.head (old s)
   *)
+  
+(* stack avec trou *)
+
+(* en CFML:
+  StackHole (R: repr a A) (L_tail: list A) (x: a) (s: loc)
+  (* stack à l'addresse s dont l'élément de tête est x et dont les autres éléments
+     ont comme modèle (via R) les éléments de L_tail *)
+*)
+
+(*@ type 'a stackhole *)
+(*@ model : { head : 'a ; tail : (modelof 'a) seq } *)
+
+(*@ val close : 'a stackhole -> 'a -> unit 
+    close s x
+      consumes x, s
+      requires &x = s.head
+      produces s @ 'a stack
+      ensures s = old x :: (old s).tail
+*)
+
+val top : 'a stack -> 'a
+(*@ x = top s 
+      consumes s
+      requires s <> []
+      produces x, s @ 'a stackhole
+      ensures x = Seq.head (old s)
+      ensures s = { head = &x; tail = Seq.tail (old s) }
+*)
+
+(* spec alternative de pop sur un stackhole 
+   (motivation: faire pop après un top) *)
+val pop : 'a stack -> 'a
+(*@ x = pop s 
+      consumes s @ 'a stackhole
+      requires s <> []
+      produces x @ any, s @ 'a stack
+      ensures &x = (old s).head
+      ensures s = (old s).tail }
+*)
+
+(* on peut vérifier que (pour s: int ref stack) :
+     let x = top s in
+     let y = pop s in
+     assert (x == y)
+*)
+
+
+(* le magic wand peut être encodé de la même manière, avec un type+modèle 
+   ghost pour chaque wand *)
 ```
 
 Spec de top pour éléments non duplicables, en read-only (avec une fraction).
@@ -669,7 +702,7 @@ type 'a mlist = Nil | Cons of { head : 'a; mutable tail : 'a mlist }
     logique. Quel noms utiliser ? On aimerait qu'ils soient dérivés de manière
     systèmatique depuis le nom `t`, sans clasher avec d'autres types existant.
     Idée: `&t` pour le type logique des valeurs, et `t` pour le type des modèles ?
-    Ou alors, `t` pour le type des valeurs, et `^t` pour le type des modèles ?
+    Ou alors, `t` pour le type des valeurs, et `modelof t` pour le type des modèles ?
   + *NB*: on ne peut pas choisir `loc` comme type des valeurs pour un type abstrait
     ephemere, car les valeurs sous-jacentes pourraient être des `int ref list` (en 
     ocaml), donc de type valeur `loc list` et non `loc`...
@@ -758,7 +791,7 @@ disposer de l'interface suivante :
 
 ```
 (*@ type 'a group *)
-(*@ model (&'a, 'a) map *)
+(*@ model ('a, modelof 'a) map *)
 
 (*@ val create : unit -> 'a group *)
 (*@ g = create ()
@@ -768,17 +801,29 @@ disposer de l'interface suivante :
 (*@ val add : 'a group -> 'a -> unit *)
 (*@ add g x
       ephemeral 'a
+      modifies g
+      consumes x
+      ensures g = Map.add (old g) (&x) (old x) 
+        (* /!\ on ne peut pas utiliser x dans la post: il a été consommé *)
+*)
+(*@ add g x
+      ephemeral 'a
+      modifies g
       consumes x @ 'a
       produces x @ any
-      ensures g = Map.add (old g) x (old x) *)
+      ensures g = Map.add (old g) (& x) (old x)  (* old (&x) = &x = & (old x) ; et ici &x = x car `any` *)
+        (* ici on a le droit d'écrire x dans la post, car on a spécifié explicitement qu'on a `x @ any` *)
+*)
 
 (*@ val remove : 'a group -> 'a -> unit *)
 (*@ remove g x
       ephemeral 'a
+      modifies g
       consumes x @ any
+      requires &x ∈ Map.dom g  (* ou x ∈ Map.dom g *)
       produces x @ 'a
-      requires x ∈ Map.dom g
-      ensures g = Map.remove (old g) (old x) /\ x = Map.find (old g) (old x) *)
+      ensures g = Map.remove (old g) (& x) /\ x = (old g)[& x] 
+*)
 ```
 
 - dans les spécifications, on a seulement besoin de pouvoir utiliser le type `'a
@@ -1106,6 +1151,11 @@ val iter_incr : int ref list -> unit
 
 explode/implode functions: a specification pattern
 
+FIXME: problème : on veut en fait une API de groupe plus générale, qui permet
+d'indicer les éléments à l'aide d'un type logique custom, et non pas par les
+valeurs des éléments du groupe... (pour les tableaux, ce serait leur indice dans
+le tableau) Les specs ci-dessous ne fonctionnent pas.
+
 ```
 (* forme générale: *)
 (*@ val explode_t : 'a t -> unit *)
@@ -1117,8 +1167,8 @@ explode/implode functions: a specification pattern
 *)
 
 (* pour les tableaux *)
-(*@ val explode_array : 'a array -> unit *)
-(*@ [g : 'a group] = explode_array a
+(*@ val explode_array : 'a array -> 'a group *)
+(*@ g = explode_array a
       ephemeral 'a
       consumes a @ 'a array
       produces a @ any array
@@ -1127,8 +1177,8 @@ explode/implode functions: a specification pattern
         ∀ 0 <= i < length a. g[a[i]] = old a[i]
 *)
 
-(*@ val implode_array : 'a array -> unit *)
-(*@ implode_array [g : 'a group] a
+(*@ val implode_array : 'a group -> 'a array -> unit *)
+(*@ implode_array g a
       ephemeral 'a
       consumes g @ 'a group * a @ any array
       produces a @ 'a array

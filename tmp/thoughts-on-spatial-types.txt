@@ -1,0 +1,106 @@
+See gospel-rfc/discussions/03-spatial-types.md
+
+Issue of namespaces.
+
+Explain Gospel types. (Types of mathematical values.)
+  Is there a correspondence between OCaml types and Gospel types?
+  By default, no, but some OCaml type definitions can be automatically
+  lifted (repeated) at the level of Gospel.
+  Is there an injection of OCaml types into Gospel types?
+    (see below where this is needed)
+  Should this injection be implicit or explicit?
+  If explicit, it would need to commute with products and sums.
+  If implicit, the same is true, although invisible.
+  Do we have a single Gospel type `val` of all OCaml values?
+  Do we have a single Gospel type `loc` of all locations?
+  Or do we have typed locations in Gospel, like `int ref`?
+  Explicit injection view:
+    if `a` is an OCaml type,
+    then `a value` could be the Gospel type of the (syntactic) values
+    that have OCaml type `a`.
+  This gives an intuitive interpretation of all OCaml types
+  (including references, functions, etc.) as a subset of the Gospel type
+  of all values.
+  Disallow `let rec` on values in OCaml.
+
+In Separation Logic, a representation predicate `R` has two parameters:
+  the OCaml value, lifted to the Gospel level (a mathematical value)
+  the mathematical model (also a mathematical value)
+In Gospel, we write
+  `x @ R`
+In this case, `&x` denotes the OCaml value, and `x` denotes the model.
+We need syntax to refer to the left-hand and right-hand type of `R`...
+  i.e., the type of `&x` and the type of `x`
+  left-hand:  implicit?
+  right-hand: `modelof R`?
+
+We introduce a type-like syntax for representation predicates.
+  typing judgement for representation predicates:
+  R : ∀... [OCaml type] ~ [Gospel type]
+  R : ∀... [Gospel type in the image of the injection of OCaml types] ~ [Gospel type]
+E.g., `int ref` is a representation predicate.
+Most representation predicates are named after OCaml types.
+Examples of representation predicates include:
+  `any`, interpreted as the identity in Separation Logic
+         any : ∀(a : OCaml type). lift(a) ~ lift(a)
+  `int`  int : int ~ integer?
+         we might want several representation predicates for int
+           (bounded integers, modulo integers, bit sets)
+  `foo ref`  : a ref ~ A box if `foo` : a ~ A
+  `foo array`: a array ~ A seq if `foo` : a ~ A
+   functions
+  `list` and other algebraic data types
+    -- what to do with records with mutable fields?
+    -- do we allow polymorphic (==)? what is its spec?
+         at `ref` and `array`, with `any`, it decides equality
+         at other types, it implies equality
+  abstract types?
+    there should be a way of the user to define the rep. predicate
+    associated with a type
+    -- need a syntax to declare an abstract representation predicate
+  `a group`, possibly axiomatized in `group.mli`
+     as an abstract predicate with phantom operations
+
+Some representation predicates are duplicable/persistent; some are not.
+  There must be some syntax to expose this information.
+
+Polymorphic functions appear to quantify over an OCaml type,
+  but actually quantify over a representation predicate;
+  is it assumed to be persistent or not?
+
+4 clauses, requires/ensures/consumes/produces.
+The consumes/produces clauses describe ownership and have the format:
+  consumes x @ t
+  produces x @ t
+(Sugar: `modifies` means `consumes` and `produces`.)
+(Sugar: `@ t` can be omitted if `t` is just the OCaml type of `x`.)
+(Sugar, or extension: `preserves` requires read-only access.)
+(Sugar: if nothing is said about an argument, then it is `preserved`;
+        if nothing is said about a result then it is `produced`.)
+
+The requires/ensures clauses are logical formulae
+and can refer to `&x` and `x` and `old x`.
+(`old x` makes sense for arguments, not results.)
+(`old e` is permitted if `e` is an expression, and applies to all names inside `e`.)
+
+Treatment of groups.
+  `foo group : a group ~ (a, A) map` if `foo : a ~ A`
+  `a group : a group ~ (lift a, modelof a) map`...
+    -- is it necessary that this axiom be expressible in Gospel?
+    -- if so, it is necessary to have something like `model(a)`
+  `type 'a group` is an ordinary abstract OCaml type
+    -- no need for a notion of a "phantom type"
+
+Treatment of phantom arguments.
+  - They do not exist at runtime, so they do not need to be OCaml values
+    or to have OCaml types. (One can think of the OCaml side as unit.)
+    Only the mathematical side is needed.
+  - But a representation predicate is still needed, since we need to talk
+    about ownership (of a group, for instance).
+    Should this predicate have two arguments (for uniformity), or just one?
+
+Syntax for logical type definitions, logical value definitions?
+  do not confuse ghost functions (`val`) and logical functions (`function`)
+  do not confuse ghost types and logical types (do we have distinct syntaxes?)
+
+Meaning of @pure annotations?

@@ -81,6 +81,26 @@ They can contain:
 - NB: `old (lift_term(x)) = lift_term(x)` always!
 
 
+syntactic conventions and liftings
+-------
+
+Proposal: for an ocaml type `t`, we have gospel types:
+- `t` for the mathematical model (may be manually defined as an alias of the
+  relevant type of a mathematical structure)
+- `&t` for the type of values (`&` should be seen as part of the type name)
+
+interaction de & et polymorphisme:
+  "&('a ref)" := 'a &ref
+
+  autrement dit, le paramètre de type sur un &foo correspond à une variable de
+  type fantôme, qui correspond au type contenu dans le type conteneur
+  correspondant à ce type addresse. On l'utilise pour éviter de mélanger des
+  addresses qui correspondraient à différents types ocaml
+
+  &'a &ref existe aussi, mais correspond à un type de ref différent : le type des
+  locations de &'a ref
+
+
 concrete representation predicates
 --------
 
@@ -104,39 +124,18 @@ type t = { mutable foo : int; bar : int array }
 
 it would be nice to be able to talk about `x.bar` without having ownership over `x`; since the field is not mutable it can be aliased freely. Generally speaking, do we want per-field ownership or full-record ownership?
 
-`lift_ty(t) := OCaml.t`? (`OCaml.` is just a syntactic marker, it could be anything else. Issue: for consistency, we would have to allow `OCaml.'a` in presence of polymorphic functions...)
-
-`OCaml.ref`, `ref`
-`'a OCaml.Array.t ~= loc`, `'a Array.t = 'a seq`
-
-
-assuming `lift_ty(t)` is a type of locations.
-What is the gospel type for "the" model of `t`?
-
 -----
-
--> representation predicate named `ty_rpred(t)`, impl type named `lift_ty(t)`,
-   model named ??
-     can recover it using `rpred_model_ty(ty_rpred(t))` but it should probably have a name...?
-   could sidestep the issue for other types, but not this time it seems?
-
--> really need an explicit separate namespace for gospel types corresponding to ocaml types?
-  `Caml.(....)` for all the `lift_ty(...)`?
-
 
 we need a grammar of representation predicates that just describe the ownership of the record cell.
 this doesn't neatly match with the syntax of ocaml types anymore like previously, where we would exploit the fact that recursive ownership would occur for polymorphic occurences (for containers)
 here we have recursive ownership for fields with monomorphic types (even non mutable ones, as long as there is a mutable field in the record)
 
-repr predicate: `{ foo : ?; bar : ? }` <- schéma de rpreds?
+repr predicate: `{ foo : ?; bar : ? }` <- schema of rpreds?
 
-records structuraux pour les repred, tout en gardant des records nominaux pour les types gospel ?
-  -> PB: que sont `rpred_impl_ty` et `rpred_model_ty` pour un rpred structurel ??
-  -> on peut au mieux définir une relation de compatibilité avec des types gospel record nominaux, mais
-     pas de lifting ...
-
-et alias de nom (dans le namespace des repred) pour avoir un nom pour `ty_rpred` qui unfold vers un record structurel + ownership recursif
-
+idea: structural records for representation predicates, while keeping nominal records for gospel types?
+  -> Problem: what are `rpred_impl_ty` et `rpred_model_ty` for a structural rpred ??
+  -> at best we can imagine defining a compatibility relation with nominal gospel types, but no direct lifting
+  -> seems bad overall
 
 pour un type ocaml `t` record, on pourrait définir deux rpreds, un appelé `t`
 (`ty_rpred(t)`) pour la possession récursive, et un appelé `t_cell` pour la
@@ -192,9 +191,216 @@ avec sucre: { foo : integer; bar : int list } ?
    ou est-ce qu'il faut maintenir une DB séparée des types "à la" t_cell ? *)
 ```
 
+--------
+Better solution:
+
+```
+type t = { mutable foo : int; bar : int array }
+```
+
+- defines a representation predicate `ty_rpred(t)` which corresponds
+  to full, recursive ownership over the record. (Recall that this is
+  the default representation predicate for `t`.)
+
+- defines two gospel types:
+  + `lift_ty(t)` (corresponds to a type of locations)
+  + a gospel record type (TODO: name/lifting function?) for the model
+    associated with `ty_rpred(t)` (ie it is
+    `rpred_model_ty(ty_rpred(t))`); here, e.g. 
+    `type t_model = { foo : integer; bar : int seq }`
+
+- allows writing per-field spatial assertions of the form 
+  `x.foo @ ...`, `x.bar @ ...`. They represent the ownership over a 
+  single field of the record
+
+- in clauses requires/ensures, `x.foo`, `x.bar` consequently refer to
+  the model of that field; `&(x.foo)` is not allowed because the
+  location of a record field is not a first class value in OCaml
+
+- when using per-field representation predicates, one can refer to
+  `&x` in requires/ensures clauses, but not `x` (!), only per-fields
+  models e.g. `x.foo`.
+
+- when using `x @ ty_rpred(t)` (the default representation predicate
+  for full recursive ownership of the record), one can use `&x`, `x`
+  (with the usual meaning), and `x.foo`, `x.bar` work as well by the
+  fact that `x` denotes a gospel record (the model).
+
+
+--------
+
+on veut pouvoir associer un invariant à une définition de record, même dans un .mli
+
+exemple de stack avec capacity (immutable), length (mutable), list items (mutable)
+inv:    length < capacity
+inv:    length = length(items)
+inv:    capacity >= 0
+
+
+
+record pur + invariant ??
+  -> ne peut pas devenir un record "normal" gospel
+  -> car on veut pouvoir déduire que les champs satisfont l'invariant
+  -> type abstrait gospel?
+
+on a besoin de type record gospel + invariant pour décrire le modèle de records
+mutables pour le prédicat de représentation par défaut qui prend possession
+récursive
+
+
+------
+
+```
+type t = { mutable foo : int; bar : int array }
+```
+
+après désucrage
+```
+x @ t
+
+x.foo @ int
+= "x @ int .foo" ? (moralement? + syntaxe x.foo dans requires/ensures)
+
+x.bar @ int seq
+= "x @ int seq .bar" ?
+```
+
+
+après traduction en SL
+
+```
+type &t := loc
+type t := { foo : int; bar : int seq } (* 'a array = 'a seq *)
+
+rpred T (x: &t) (v: t) :=
+  x ~> {{ foo ; bar }} *
+  Int foo v.foo *
+  Array Int bar v.bar
+
+rpred .Foo (A: rpred &a a) (x: &t) (v: a) :=
+  x ~> {{ foo; .. }} *
+  A foo v
+
+rpred .Bar (A: rpred &a a) (x: &t) (v: a) :=
+  x ~> {{ ..; bar }} *
+  A bar v
+
+lemma unfold:  T x v  *--*  .Foo Int x v.foo * .Bar (Array Int) x v.bar
+```
+
+semble ok, tant qu'il n'y a pas deux records avec des champs du même nom dans le scope
+  dans ce cas, il faut disambiguer, basé sur les types ocaml ?
+
+
 ## ADTs (with constructors with mutable fields)
 
 ...
+
+
+# génération automatique de noms
+
+où?
+
+```
+val f : a -> b
+  r = f x
+    consumes x @ a
+    produces x @ a, r @ b
+
+~> introduit x:a, r:b, &x:&a, &r:&b dans la logique (pre/post)
+```
+
+```
+type t
+(*@ x : t
+      model : int seq
+      invariant  ... x ... *)
+~> x : int seq
+```
+
+NB: `model int seq` désirable anyawy pour éviter .view partout / par cohérence
+avec comment les rpreds fonctionnent en général
+nécessite le header `x:t`, mais on en a besoin anyway (TODO check why)
+
+```
+type t
+(*@ x : t
+      model foo : int
+      mut model bar : int seq
+      invariant ... x.foo .. x.bar ... (?) *)
+~> x:t, x.foo:int, x.bar:int seq
+```
+
+<-> incohérence: quelle version choisir? <->
+
+```
+(??)
+type t
+(* model foo : int
+   mut model bar : int seq
+   invariant ... foo .. bar ... *)
+~> foo:int, bar:int seq
+```
+
+
+```
+(*@ x : t  with model foo  ?
+    x : t  as foo ?
+*)
+
+type t
+(*@ x : t as seq
+      model int seq
+      invariant len seq >= 42 *)
+```
+
+```
+allow, in a .ml?:
+
+type t
+(*@ x : t as foo
+  owns x @ ...
+  model : int seq = ..x..
+or
+  model foo : int seq = ..x..
+*)
+```
+
+(not strictly needed, equalities can also be introduced by `invariant`)
+
+
+donc: dans un .ml, pour définir un nouveau rpred:
+```
+type raw = { ... }
+
+type t = raw
+(*@ x : t as m
+      model : int seq
+      owns x @ raw
+      invariant .. x .. m ..
+*)
+```
+
+maintenant, quid du cas avec des champs modèle?
+il faut spécifier pour chaque rpred de champ ce qu'il possède
+
+```
+type raw = { ... }
+
+type t = raw
+(*@ x : t as m
+      model contents : int seq
+      model capacity : int
+      owns x @ raw
+      owns capacity : x.foo @ int
+      owns contents : x.bar @ int array
+      invariant ...
+      invariant capacity : ...
+      .... ???
+```
+
+veut on un autre moyen que de définir un alias de type pour définir un nouveau
+prédicat de représentation ?
 
 
 representation predicates for abstract types
@@ -278,6 +484,39 @@ proposal 2:
   arguments with ocaml types behaves as expected (the ghost argument carries the
   same ownership as if it was a normal argument of the function).
 
+
+proposal:
+
+- some gospel types can have an associated default representation predicate
+- by default, passing them as ghost arguments requires the associated ownership
+- if a gospel type used as a ghost argument does not have an associated
+  representation predicate, no ownership is required (equivalent to using `any`
+  as the representation predicate)
+
+```ocaml
+(*@ type t
+      model int list *)
+(* ~> declares a new default representation predicate for `t` *)
+(* ~> which name? *)
+(* ~> what about the case of a clash where there is already a 
+    representation predicate named t because of an ocaml type t? *)
+
+
+val f : unit -> unit
+(*@ f [x: t] () 
+      requires List.sum x = 42
+*)
+  (* desugars into *)
+(*@ f [x: t] () 
+      preserves x @ t
+      requires List.sum x = 42
+*)
+```
+
+- or, force the user to specify an explicit x @ .. for ghost arguments?
+  but that doesn't solve the problem of *defining* the representation predicate
+
+
 treatment of ghost function specifications
 -------
 
@@ -311,6 +550,98 @@ type t = { mutable size : int; mutable items : int array }
 
 need for a new declaration for associating ghost fields with an OCaml record type?
 ghost fields could be used instead of exists quantifiers in the representation predicate
+
+
+
+définir un prédicat de représentation pour un type existant
+avec un alias de type (ghost?)
+ou faut-il un nouveau mot clef ?
+
+
+sur la stack, pouvoir définir une représentation pour le record avec la liste des items détachée
+  pour pouvoir appeler la fonction length, sans préjuger de la possesion de la liste des éléments
+
+et aussi pouvoir split la possession duplicable du champ capacity
+
+
+# dans les .ml
+
+```
+(* dans stack.ml *)
+
+type 'a t = {
+  capacity : int;
+  mutable length : int;
+  mutable contents : 'a list
+}
+(*@ x : 'a t
+      model { capacity : int; contents : (modelof 'a) seq }
+      owns x.capacity @ int, x.length @ int, x.contents @ 'a list
+      (* ou *) owns x.capacity, x.length, x.contents
+      (* ou *) owns x.* (* ou rien? *)
+      invariant x.length = Seq.length contents /\ Seq.length contents <= capacity /\ 0 < capacity
+      invariant capacity = x.capacity /\ contents = Seq.of_list x.contents
+*)
+(* polymorphisme bizarre *)
+
+type 'a open = 'a t
+(* bof? *)
+(*@ x : 'a open
+      model { capacity : int; length : int; contents : 'a list }
+      owns x.* @ any
+*)
+
+(*@ type 'a open = 'a t *)
+(*@ model ... *)
+(* ?? *)
+
+(*@ repr 'a t_open 
+    x : 'a t
+     ....
+  (syntaxe à déterminer)
+*)
+
+let mystack_broken : 'a open = { capacity = 0; length = 1; contents = [] }
+let mystack_correct : 'a t = { capacity = 1; length = 0; contents = [] }
+
+(*@ val close : 'a t -> unit
+    () = close x
+      consumes x @ 'a open, x.contents @ 'a list
+      produces x @ 'a t
+      requires x.length = List.length x.contents /\ List.length x.contents <= x.capacity /\ 0 < x.capacity
+      ensures x.capacity = old x.capacity /\ x.contents = Seq.of_list (old x.contents)
+*)
+
+(* dans stack.mli *)
+type 'a t
+(*@ model { capacity : int; contents : 'a seq } *)
+```
+
+
+module system
+-------
+
+si on a un module OCaml M, avec m.mli qui contient des annotations
+
+est-ce qu'on a nécessairement un module gospel M qui contient les déclarations
+produites par les annotations de m.mli ?
+
+
+mais alors, que faire du module Array de gospel vs le module Array de OCaml ?
+
+idée: le module array de gospel c'est juste le module array de ocaml annoté
+(avec juste un hack pour en avoir une version annotée)
+
+si on veut des modules gospel spécifiques (par ex pour les théories pures),
+alors on les mets dans un module Gospel (Gospel.Stdlib.XX ? ou Gospel.XX
+directement ?) que l'on "possède" de toute façon dans le namespace global des
+libs ocaml
+
+
+attach a model to pure types
+------
+
+e.g. could we declare 'a seq as the model for 'a list
 
 
 meaning of `pure` annotations

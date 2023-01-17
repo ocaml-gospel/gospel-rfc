@@ -89,8 +89,6 @@ type 'a stack
 
 val length : 'a stack -> int
 (*@ n = length s
-      consumes s @ 'a stack
-      produces s @ 'a stack, n @ int
       ensures n = Seq.length s
 *)
 
